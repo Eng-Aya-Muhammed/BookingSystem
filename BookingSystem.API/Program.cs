@@ -7,6 +7,7 @@ using FluentValidation.AspNetCore;
 using System.Reflection;
 using FluentValidation;
 using BookingSystem.Infrastructure.Data.Seeders.BookingSystem.Infrastructure.Data.Seeders;
+using BookingSystem.API.Profiles;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +22,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddIdentity<User, IdentityRole<int>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
-
+builder.Services.AddAutoMapper(cfg => { }, typeof(MappingProfile).Assembly);
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
