@@ -1,7 +1,7 @@
 ﻿using BookingSystem.Core.Features.Reservations.Commands;
 using FluentValidation;
 
-namespace BookingSystem.API.Validators
+namespace BookingSystem.Core.Features.Reservations.Validators
 {
     public class CreateReservationValidator : AbstractValidator<CreateReservationCommand>
     {

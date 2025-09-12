@@ -1,4 +1,3 @@
-using BookingSystem.Infrastructure.Data.Seeders;
 using BookingSystem.API.Profiles;
 using BookingSystem.Core.Interfaces;
 using BookingSystem.Infrastructure.Repositories;
@@ -12,115 +11,175 @@ using BookingSystem.Infrastructure.Data;
 using BookingSystem.Core.Models;
 using Microsoft.OpenApi.Models;
 using BookingSystem.Infrastructure.Data.Seeders.BookingSystem.Infrastructure.Data.Seeders;
-using BookingSystem.Core.Features.Reservations.Commands;
+using BookingSystem.Infrastructure.Authentication;
+using MediatR;
+using FluentValidation;
+using BookingSystem.Core.Settings;
+using BookingSystem.Core.Features.Auth.Validators;
+using BookingSystem.Core.Features.Behaviors;
+using BookingSystem.Core.Features.Reservations.Queries;
+
+
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Controllers + FluentValidation
 builder.Services.AddControllers()
     .AddFluentValidation(fv => fv.RegisterValidatorsFromAssemblyContaining<Program>());
 
+// DB Context
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Identity
 builder.Services.AddIdentity<User, IdentityRole<int>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
+// HttpContextAccessor
+builder.Services.AddHttpContextAccessor();
+
+// DI for Repositories & UnitOfWork
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+
+// Validators
+builder.Services.AddValidatorsFromAssemblyContaining<LoginCommandValidator>();
+
+// MediatR + Pipeline
 builder.Services.AddMediatR(cfg =>
 {
-    cfg.RegisterServicesFromAssembly(typeof(CreateReservationCommandHandler).Assembly);
-}); builder.Services.AddAutoMapper(cfg => { }, typeof(MappingProfile).Assembly);
-
-var key = Encoding.ASCII.GetBytes(builder.Configuration["Jwt:Key"] ?? "your-super-secret-key-at-least-32-chars-long");
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(key),
-            ValidateIssuer = false,
-            ValidateAudience = false
-        };
-    });
-
-// ????? Swagger ???????? Swashbuckle
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "Booking API",
-        Version = "v1",
-        Description = "Booking System API"
-    });
-
-    // Security definition
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Enter 'Bearer' followed by your token in the text input below."
-    });
-
-    // Security requirement
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
+    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
+    cfg.RegisterServicesFromAssembly(typeof(LoginCommandValidator).Assembly);
+    cfg.RegisterServicesFromAssembly(typeof(GetAllReservationsQueryHandler).Assembly);
+    cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 });
 
-var app = builder.Build();
+// AutoMapper
+builder.Services.AddAutoMapper(cfg => { }, typeof(MappingProfile).Assembly);
 
-// ????? ???????? (Seeding)
-using (var scope = app.Services.CreateScope())
+// JWT Service
+builder.Services.AddScoped<JwtTokenService>();
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>();
+
+// Authentication
+builder.Services.AddAuthentication(options =>
 {
-    var services = scope.ServiceProvider;
-    var logger = services.GetRequiredService<ILogger<Program>>();
-
-    try
-    {
-        var context = services.GetRequiredService<AppDbContext>();
-        var userManager = services.GetRequiredService<UserManager<User>>();
-        var roleManager = services.GetRequiredService<RoleManager<IdentityRole<int>>>();
-
-        await DataSeeder.SeedAsync(context, userManager, roleManager);
-        logger.LogInformation("Database seeded successfully.");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "An error occurred while seeding the database.");
-    }
-}
-
-// ????? ?? ?????? ??????? HTTP
-if (app.Environment.IsDevelopment())
+    // Default authentication scheme
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
+    // Save the token in AuthenticationProperties after a successful authorization
+    options.SaveToken = true;
+
+    // Token validation parameters
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Booking API v1");
-        c.RoutePrefix = "swagger"; // ????? ???? Swagger
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Key)),
+
+        ValidateIssuer = !string.IsNullOrEmpty(jwtSettings.Issuer),
+        ValidIssuer = jwtSettings.Issuer,
+
+        ValidateAudience = !string.IsNullOrEmpty(jwtSettings.Audience),
+        ValidAudience = jwtSettings.Audience,
+
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero // ?????? ??? ????? ??? ??????? ???????
+    };
+
+    // Custom events
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = async context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\": \"Unauthorized: Invalid or missing token.\"}");
+        },
+        OnAuthenticationFailed = async context =>
+        {
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\": \"Authentication failed: Invalid token.\"}");
+        },
+        OnForbidden = async context =>
+        {
+            context.Response.StatusCode = 403;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\": \"Forbidden: Insufficient permissions.\"}");
+        }
+    };
+});
+builder.Services.AddOpenApi();
+
+// Swagger + JWT support
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options => {
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description =
+            "JWT Authorization header using the Bearer scheme. \r\n\r\n " +
+            "Enter 'Bearer' [space] and then your token in the text input below.\r\n\r\n" +
+            "Example: \"Bearer 12345abcdef\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Scheme = "Bearer"
     });
-}
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement()
+                {
+                    {
+                    new OpenApiSecurityScheme
+                    {
+                        Reference = new OpenApiReference
+                                    {
+                                        Type = ReferenceType.SecurityScheme,
+                                        Id = "Bearer"
+                                    },
+                        Scheme = "oauth2",
+                        Name = "Bearer",
+                        In = ParameterLocation.Header
+                    },
+                    new List<string>()
+                    }
+                     });
 
+});
+var app = builder.Build();
+app.UseExceptionHandler("/error");
+app.MapOpenApi();
+
+app.UseRouting();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
+app.MapControllerRoute(
+                name: "default",
+                pattern: "{controller=Reservation}/{action=GetAll}/{id?}");
+// Swagger UI
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+
+// Database seeding (???????)
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    var userManager = services.GetRequiredService<UserManager<User>>();
+    var roleManager = services.GetRequiredService<RoleManager<IdentityRole<int>>>();
+    var context = services.GetRequiredService<AppDbContext>();
+    await DataSeeder.SeedAsync(context, userManager, roleManager);
+}
 
 app.Run();

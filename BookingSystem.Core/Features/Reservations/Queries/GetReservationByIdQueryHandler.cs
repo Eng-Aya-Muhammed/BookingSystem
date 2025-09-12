@@ -1,5 +1,5 @@
 ﻿using AutoMapper;
-using BookingSystem.Core.DTOs;
+using BookingSystem.Core.DTOs.Reservation;
 using BookingSystem.Core.Interfaces;
 using BookingSystem.Core.Models;
 using MediatR;

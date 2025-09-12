@@ -1,64 +1,114 @@
 ﻿using BookingSystem.Core.Features.Reservations.Commands;
 using BookingSystem.Core.Features.Reservations.Queries;
+using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BookingSystem.API.Controllers
 {
-    [ApiController]
+
     [Route("api/[controller]/[action]")]
-    //[Authorize]
-    public class ReservationsController(IMediator mediator) : ControllerBase
+    [ApiController]
+    [Authorize]
+    public class ReservationsController(IMediator _mediator) : ControllerBase
     {
-        private readonly IMediator _mediator = mediator;
 
-        [HttpGet]
-        public async Task<IActionResult> GetAll() =>
-            Ok(await _mediator.Send(new GetAllReservationsQuery()));
-
-        [HttpGet("{id:int}")]
-        public async Task<IActionResult> Get(int id)
-        {
-            try
+            [HttpGet]
+            public async Task<IActionResult> GetAll()
             {
-                var reservation = await _mediator.Send(new GetReservationByIdQuery(id));
-                return Ok(reservation);
+                var reservations = await _mediator.Send(new GetAllReservationsQuery());
+                return Ok(reservations);
             }
-            catch (KeyNotFoundException)
-            {
-                return NotFound("Reservation not found");
-            }
-        }
 
-        [HttpPost]
+            [HttpGet("{id:int}")]
+            public async Task<IActionResult> Get(int id)
+            {
+                try
+                {
+                    var reservation = await _mediator.Send(new GetReservationByIdQuery(id));
+                    return Ok(reservation);
+                }
+                catch (KeyNotFoundException)
+                {
+                    return NotFound("Reservation not found");
+                }
+                catch (Exception ex) 
+                {
+                    return StatusCode(500, $"An error occurred: {ex.Message}");
+                }
+            }
+
+         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateReservationCommand command)
         {
-            var reservation = await _mediator.Send(command with { ReservedById = 1 });
-            return CreatedAtAction(nameof(Get), new { id = reservation.Id }, reservation);
-        }
-
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> Update(int id, [FromBody] UpdateReservationCommand command)
-        {
             try
             {
-                var updated = await _mediator.Send(command with { Id = id });
-                return Ok(updated);
+                var reservation = await _mediator.Send(command);
+                return CreatedAtAction(nameof(Get), new { id = reservation.Id }, reservation);
             }
-            catch (KeyNotFoundException)
+            catch (ValidationException validationEx)
             {
-                return NotFound("Reservation not found");
+                return BadRequest(validationEx.Errors);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(ex.Message); 
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"An error occurred: {ex.Message}");
             }
         }
+
+
+            [HttpPut("{id:int}")]
+            public async Task<IActionResult> Update(int id, [FromBody] UpdateReservationCommand command)
+            {
+                try
+                {
+                    command = command with { Id = id };
+
+                    var updated = await _mediator.Send(command);
+                    return Ok(updated);
+                    }
+                catch (ValidationException validationEx)
+                {
+                    return BadRequest(validationEx.Errors);
+                }
+                catch (KeyNotFoundException)
+                {
+                    return NotFound("Reservation not found");
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, $"An error occurred: {ex.Message}");
+                }
+            }
 
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id)
         {
-            await _mediator.Send(new DeleteReservationCommand(id));
-            return NoContent();
+            try
+            {
+                await _mediator.Send(new DeleteReservationCommand(id));
+                return Ok(new { message = "Reservation deleted successfully." });
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound(new { message = "Reservation not found." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"An error occurred: {ex.Message}" });
+            }
         }
-    }
 
+    }
 }
+
+

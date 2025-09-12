@@ -1,4 +1,4 @@
-﻿namespace BookingSystem.Core.DTOs
+﻿namespace BookingSystem.Core.DTOs.Reservation
 {
     public record ReservationDto
     {

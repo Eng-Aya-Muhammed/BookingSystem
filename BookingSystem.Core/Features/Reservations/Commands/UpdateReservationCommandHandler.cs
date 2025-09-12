@@ -1,5 +1,5 @@
 ﻿using AutoMapper;
-using BookingSystem.Core.DTOs;
+using BookingSystem.Core.DTOs.Reservation;
 using BookingSystem.Core.Interfaces;
 using BookingSystem.Core.Models;
 using MediatR;
@@ -16,7 +16,7 @@ namespace BookingSystem.Core.Features.Reservations.Commands
         {
             var reservation = await repository.GetByIdAsync(request.Id)
                               ?? throw new KeyNotFoundException("Reservation not found");
-
+           
             mapper.Map(request, reservation);
             await repository.UpdateAsync(reservation);
             await uow.SaveChangesAsync();
