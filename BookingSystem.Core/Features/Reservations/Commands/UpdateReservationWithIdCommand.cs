@@ -3,10 +3,10 @@ using MediatR;
 
 namespace BookingSystem.Core.Features.Reservations.Commands
 {
-    public record UpdateReservationCommand(
-    string CustomerName,
-    DateTime ReservationDate,
-    string? Notes
+    
+   public record UpdateReservationWithIdCommand(
+    int Id,
+    UpdateReservationCommand Command
 ) : IRequest<ReservationDto>;
 
 }

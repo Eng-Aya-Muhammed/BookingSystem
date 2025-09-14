@@ -66,29 +66,29 @@ namespace BookingSystem.API.Controllers
         }
 
 
-            [HttpPut("{id:int}")]
-            public async Task<IActionResult> Update(int id, [FromBody] UpdateReservationCommand command)
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] UpdateReservationCommand command)
+        {
+            try
             {
-                try
-                {
-                    command = command with { Id = id };
-
-                    var updated = await _mediator.Send(command);
-                    return Ok(updated);
-                    }
-                catch (ValidationException validationEx)
-                {
-                    return BadRequest(validationEx.Errors);
-                }
-                catch (KeyNotFoundException)
-                {
-                    return NotFound("Reservation not found");
-                }
-                catch (Exception ex)
-                {
-                    return StatusCode(500, $"An error occurred: {ex.Message}");
-                }
+                var wrapper = new UpdateReservationWithIdCommand(id, command);
+                var updated = await _mediator.Send(wrapper);
+                return Ok(updated);
             }
+            catch (ValidationException validationEx)
+            {
+                return BadRequest(validationEx.Errors);
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound("Reservation not found");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"An error occurred: {ex.Message}");
+            }
+        }
+
 
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id)
