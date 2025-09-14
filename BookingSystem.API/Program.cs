@@ -172,7 +172,7 @@ if (app.Environment.IsDevelopment())
 }
 
 
-// Database seeding (???????)
+// Database seeding
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
